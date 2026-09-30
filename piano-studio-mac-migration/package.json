@@ -1,0 +1,27 @@
+{
+  "name": "piano-studio",
+  "version": "1.0.0",
+  "description": "三角钢琴 3D 静物渲染：程序化建模 + 程序化 HDRI + 实时地板反射",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "start": "node tools/serve.mjs --open",
+    "serve": "node tools/serve.mjs",
+    "shot": "node tools/shot.mjs",
+    "probe": "node tools/probe.mjs",
+    "tune": "node tools/tune.mjs",
+    "samples": "node tools/fetch-samples.mjs && node tools/build-samples.mjs",
+    "sampletest": "node tools/sampletest.mjs",
+    "videotest": "node tools/videotest.mjs",
+    "kbproptest": "node tools/kbproptest.mjs",
+    "deploy": "node tools/deploy.mjs"
+  },
+  "type": "module",
+  "dependencies": {
+    "three": "^0.170.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "puppeteer-core": "^25.11.0"
+  },
+  "private": true
+}

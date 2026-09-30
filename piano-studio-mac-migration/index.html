@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三角钢琴 · 实时渲染</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23121318'/><rect x='5' y='12' width='22' height='13' rx='2.5' fill='%23e8e2d6'/><rect x='9' y='12' width='2.6' height='8' fill='%23121318'/><rect x='15' y='12' width='2.6' height='8' fill='%23121318'/><rect x='21' y='12' width='2.6' height='8' fill='%23121318'/><rect x='5' y='9' width='22' height='3' rx='1.5' fill='%23d8b26a'/></svg>">
+<style>
+  :root {
+    --ink: #e9ecf2;
+    --dim: #8b93a4;
+    --panel: rgba(15, 17, 23, .72);
+    --line: rgba(255, 255, 255, .10);
+    --accent: #d8b26a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #07080b;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+                 "Segoe UI", Roboto, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  #view { display: block; width: 100%; height: 100%; }
+  #wf {
+    display: none; position: fixed; inset: 0; z-index: 12;
+    width: 100%; height: 100%; touch-action: none; cursor: pointer;
+  }
+  .btn.rec { color: #ff7b72; border-color: rgba(255, 123, 114, .35); }
+  .btn:disabled { opacity: .38; cursor: default; }
+  .btn:disabled:hover { color: var(--dim); background: rgba(255,255,255,.045); }
+
+  /* ── 加载页 ── */
+  #loading {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 22px; background: radial-gradient(120% 90% at 50% 40%, #14161d 0%, #07080b 70%);
+    transition: opacity .7s ease, visibility .7s;
+  }
+  #loading.done { opacity: 0; visibility: hidden; }
+  #loading.error { background: #1a0f10; }
+  .brand { font-size: 13px; letter-spacing: .42em; color: var(--accent); text-indent: .42em; }
+  .title { font-size: 30px; font-weight: 300; letter-spacing: .16em; text-indent: .16em; }
+  .loadbar { width: 240px; height: 2px; background: rgba(255,255,255,.09); border-radius: 2px; overflow: hidden; }
+  .loadbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #8a6f3a, var(--accent));
+               transition: width .35s ease; }
+  #loadText { font-size: 12px; color: var(--dim); letter-spacing: .06em; min-height: 16px; }
+  .hint { font-size: 11.5px; color: #5d6474; letter-spacing: .04em; }
+
+  /* ── 控制面板 ── */
+  #panel {
+    position: fixed; top: 18px; right: 18px; z-index: 20; width: 216px;
+    background: var(--panel); backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    border: 1px solid var(--line); border-radius: 13px;
+    padding: 13px 14px 15px; box-shadow: 0 18px 48px rgba(0,0,0,.5);
+    transition: transform .35s cubic-bezier(.4,0,.2,1), opacity .3s;
+    /* 小窗口下面板比视口还高，不滚动的话最底下那几个按钮就点不到了 */
+    max-height: calc(100vh - 36px); overflow-y: auto; overscroll-behavior: contain;
+    scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.22) transparent;
+  }
+  #panel::-webkit-scrollbar { width: 6px; }
+  #panel::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,.22); border-radius: 3px;
+  }
+  #panel::-webkit-scrollbar-track { background: transparent; }
+  #panel.collapsed { transform: translateX(calc(100% + 26px)); opacity: 0; pointer-events: none; }
+  /* 瀑布流模式下收起 3D 专属分组（视角/琴盖/演奏/音源/画质），
+     面板变短才不会盖住屏幕底部的键盘条右端 */
+  body.wf-mode .pgrp3d, body.wf-mode .foot { display: none; }
+  .phead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2px; }
+  .ptitle { font-size: 10.5px; color: var(--dim); letter-spacing: .16em; }
+  .phead button {
+    background: none; border: none; cursor: pointer; color: var(--dim);
+    font-size: 13px; line-height: 1; padding: 3px 5px; border-radius: 6px; transition: all .15s;
+  }
+  .phead button:hover { color: var(--ink); background: rgba(255,255,255,.08); }
+  #lockBtn.locked { color: var(--accent); }
+  #panelToggle {
+    position: fixed; top: 18px; right: 18px; z-index: 21;
+    width: 34px; height: 34px; border-radius: 10px; cursor: pointer;
+    background: var(--panel); backdrop-filter: blur(16px);
+    border: 1px solid var(--line); color: var(--dim);
+    display: none; align-items: center; justify-content: center; font-size: 15px;
+  }
+  #panel.collapsed ~ #panelToggle { display: flex; }
+  .sect { font-size: 10.5px; color: var(--dim); letter-spacing: .16em; margin: 13px 0 8px; }
+  .sect:first-child { margin-top: 2px; }
+  #views { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #views button {
+    font: inherit; font-size: 12px; padding: 7px 0; cursor: pointer; color: var(--dim);
+    background: rgba(255,255,255,.045); border: 1px solid transparent;
+    border-radius: 8px; transition: all .18s;
+  }
+  #views button:hover { color: var(--ink); background: rgba(255,255,255,.09); }
+  #views button.on { color: #1b1408; background: var(--accent); font-weight: 600; }
+  .row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--dim); }
+  .row b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 3px; margin: 11px 0 2px;
+    background: rgba(255,255,255,.14); border-radius: 3px; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 4px rgba(216,178,106,.16); cursor: grab;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 13px; height: 13px; border: none; border-radius: 50%; background: var(--accent);
+  }
+  .btn {
+    font: inherit; font-size: 12px; width: 100%; padding: 8px 0; margin-top: 6px; cursor: pointer;
+    color: var(--dim); background: rgba(255,255,255,.045);
+    border: 1px solid transparent; border-radius: 8px; transition: all .18s;
+  }
+  .btn:hover { color: var(--ink); background: rgba(255,255,255,.09); }
+  select {
+    font: inherit; font-size: 11.5px; color: var(--ink); cursor: pointer;
+    background: rgba(255,255,255,.07); border: 1px solid var(--line);
+    border-radius: 6px; padding: 2px 5px; outline: none;
+  }
+  select option { background: #14161d; }
+  .srcStat { margin-top: 7px; font-size: 10.5px; color: #5d6474; line-height: 1.5;
+             font-variant-numeric: tabular-nums; }
+  .srcCredit { margin-top: 3px; font-size: 10px; color: #4b5162; line-height: 1.45; }
+  #hud {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    z-index: 15; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+    justify-content: center; max-width: min(92vw, 980px);
+    padding: 8px 15px; border-radius: 11px;
+    background: rgba(15,17,23,.66); backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line);
+    font-size: 11px; color: #7d8496; letter-spacing: .02em;
+    transition: opacity .4s;
+  }
+  #hud .sep { color: #3c424f; }
+  #hud b {
+    display: inline-block; min-width: 15px; padding: 1px 3px; margin-right: 2px;
+    background: rgba(255,255,255,.075); border-radius: 4px;
+    color: #aeb6c6; font-weight: 500; font-size: 10.5px;
+  }
+  #playState { color: #6d7484; }
+  #playState.on { color: var(--accent); font-weight: 600; }
+  @media (max-width: 900px) { #hud .keys { display: none; } }
+  .foot { margin-top: 14px; padding-top: 11px; border-top: 1px solid var(--line);
+          font-size: 10.5px; color: #5d6474; line-height: 1.65; }
+</style>
+</head>
+<body>
+  <canvas id="view"></canvas>
+  <canvas id="wf"></canvas>
+
+  <div id="panel">
+    <div class="phead">
+      <span class="ptitle">控制台</span>
+      <span>
+        <button id="lockBtn" title="锁定面板">🔓</button>
+        <button id="panelClose" title="收起面板">—</button>
+      </span>
+    </div>
+    <div class="pgrp3d">
+      <div class="sect">视角</div>
+      <div id="views"></div>
+
+    <div class="sect">琴盖</div>
+    <div class="row"><span>开合角度</span><b id="lidVal">48°</b></div>
+    <input id="lid" type="range" min="0" max="80" step="1" value="48">
+
+    <div class="sect">键盘盖</div>
+    <div class="row"><span>开合角度</span><b id="fallVal">90°</b></div>
+    <input id="fall" type="range" min="0" max="90" step="1" value="90">
+
+    <div class="sect">演奏</div>
+    <div class="row"><span>音量</span><b id="volVal">70%</b></div>
+    <input id="vol" type="range" min="0" max="100" step="1" value="70">
+    <button class="btn" id="susBtn">延音 · 关（空格）</button>
+    <div class="row" style="margin-top:9px"><span>MIDI 设备</span><b id="midiState">未接入</b></div>
+
+    <div class="sect">音源</div>
+    <div class="row">
+      <span>钢琴音色</span>
+      <select id="srcPick" style="max-width:118px"></select>
+    </div>
+    <div class="srcStat" id="srcStat">内置合成音源</div>
+    <div class="srcCredit" id="srcCredit"></div>
+
+    <div class="sect">画质</div>
+    <div class="row">
+      <span><b id="fpsBadge">–</b> FPS · <span id="tierBadge">中</span></span>
+      <select id="tierPick">
+        <option value="high">高</option>
+        <option value="medium" selected>中</option>
+        <option value="low">低</option>
+      </select>
+    </div>
+    <button class="btn" id="shot">保存当前画面 PNG</button>
+    </div>
+
+    <div class="sect">录制 · 瀑布流</div>
+    <button class="btn" id="wfBtn">打开录制视图</button>
+    <div class="row" style="margin-top:9px"><span>光条速率</span><b id="wfSpeedVal">160</b></div>
+    <input id="wfSpeed" type="range" min="40" max="400" step="10" value="160">
+    <button class="btn" id="recBtn">● 开始录制</button>
+    <div class="row" style="margin-top:8px"><span>状态</span><b id="recStat">就绪</b></div>
+    <button class="btn" id="playBtn" disabled>▶ 回放</button>
+    <button class="btn" id="dlMid" disabled>下载 .mid</button>
+    <button class="btn" id="dlAudio" disabled>下载琴声 .webm</button>
+    <button class="btn" id="dlVideo" disabled>导出瀑布流视频（含原声）</button>
+    <div class="row" style="margin-top:9px">
+      <span>音画对齐</span>
+      <select id="avOff" style="max-width:118px">
+        <option value="0">不补偿</option>
+        <option value="100">画面延后 0.1s</option>
+        <option value="200">画面延后 0.2s</option>
+        <option value="300" selected>画面延后 0.3s</option>
+        <option value="400">画面延后 0.4s</option>
+        <option value="500">画面延后 0.5s</option>
+      </select>
+    </div>
+    <div class="srcStat" id="avOffStat">监听设备延迟约 —</div>
+
+    <div class="foot">拖拽旋转 · 滚轮缩放 · 右键平移<br>画质会自动调整，也可手动指定</div>
+  </div>
+  <button id="panelToggle" title="显示面板">☰</button>
+
+  <div id="hud">
+    <span id="playState">已停止</span>
+    <span class="sep">·</span>
+    <span class="keys"><b>Z</b><b>S</b><b>X</b><b>D</b><b>C</b><b>V</b><b>G</b><b>B</b><b>H</b><b>N</b><b>J</b><b>M</b> C4–B4</span>
+    <span class="sep">·</span>
+    <span class="keys"><b>Q</b><b>2</b><b>W</b><b>3</b><b>E</b><b>R</b><b>5</b><b>T</b><b>6</b><b>Y</b><b>7</b><b>U</b> C5–B5</span>
+    <span class="sep">·</span>
+    <span>空格 延音踏板</span>
+    <span class="sep">·</span>
+    <span>点住琴键左右滑动可刮奏</span>
+  </div>
+
+  <div id="loading">
+    <div class="brand">GRAND PIANO</div>
+    <div class="title">三角钢琴</div>
+    <div class="loadbar"><i id="loadBar"></i></div>
+    <div id="loadText">正在启动…</div>
+  </div>
+
+<!-- 打包成经典脚本（IIFE），双击本文件即可打开。
+     浏览器在 file:// 下禁止加载 ES 模块，但放行经典 <script src>。
+     改完源码后跑 `node tools/build.mjs` 重新生成 piano.js。
+     要直接跑源码（不经打包）请用 dev.html + 本地服务器。 -->
+  <script src="./piano.js"></script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+.DS_Store
+node_modules/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.log
+
+# 浏览器验证生成的截图、录像及导出文件
+piano-studio-mac-migration/shots/

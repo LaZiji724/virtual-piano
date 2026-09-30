@@ -1,0 +1,14 @@
+{
+  "libraries": [
+    {
+      "id": "accurate",
+      "name": "Accurate Salamander（精修版）",
+      "piano": "Yamaha C5 · 精修",
+      "credit": "原采样 Alexander Holm（CC-BY 3.0）；重制 Accurate-Salamander Project (cyamauch)",
+      "license": "CC-BY 3.0",
+      "manifest": "accurate.json",
+      "files": 591,
+      "bytes": 1932782082
+    }
+  ]
+}

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>三角钢琴 · 实时渲染（开发版）</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23121318'/><rect x='5' y='12' width='22' height='13' rx='2.5' fill='%23e8e2d6'/><rect x='9' y='12' width='2.6' height='8' fill='%23121318'/><rect x='15' y='12' width='2.6' height='8' fill='%23121318'/><rect x='21' y='12' width='2.6' height='8' fill='%23121318'/><rect x='5' y='9' width='22' height='3' rx='1.5' fill='%23d8b26a'/></svg>">
+<style>
+  :root {
+    --ink: #e9ecf2;
+    --dim: #8b93a4;
+    --panel: rgba(15, 17, 23, .72);
+    --line: rgba(255, 255, 255, .10);
+    --accent: #d8b26a;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: #07080b;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei",
+                 "Segoe UI", Roboto, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+  #view { display: block; width: 100%; height: 100%; }
+
+  /* ── 加载页 ── */
+  #loading {
+    position: fixed; inset: 0; z-index: 40;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 22px; background: radial-gradient(120% 90% at 50% 40%, #14161d 0%, #07080b 70%);
+    transition: opacity .7s ease, visibility .7s;
+  }
+  #loading.done { opacity: 0; visibility: hidden; }
+  #loading.error { background: #1a0f10; }
+  .brand { font-size: 13px; letter-spacing: .42em; color: var(--accent); text-indent: .42em; }
+  .title { font-size: 30px; font-weight: 300; letter-spacing: .16em; text-indent: .16em; }
+  .loadbar { width: 240px; height: 2px; background: rgba(255,255,255,.09); border-radius: 2px; overflow: hidden; }
+  .loadbar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #8a6f3a, var(--accent));
+               transition: width .35s ease; }
+  #loadText { font-size: 12px; color: var(--dim); letter-spacing: .06em; min-height: 16px; }
+  .hint { font-size: 11.5px; color: #5d6474; letter-spacing: .04em; }
+
+  /* ── 控制面板 ── */
+  #panel {
+    position: fixed; top: 18px; right: 18px; z-index: 20; width: 216px;
+    background: var(--panel); backdrop-filter: blur(16px) saturate(1.3);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3);
+    border: 1px solid var(--line); border-radius: 13px;
+    padding: 13px 14px 15px; box-shadow: 0 18px 48px rgba(0,0,0,.5);
+    transition: transform .35s cubic-bezier(.4,0,.2,1), opacity .3s;
+  }
+  #panel.collapsed { transform: translateX(calc(100% + 26px)); opacity: 0; pointer-events: none; }
+  #panelToggle {
+    position: fixed; top: 18px; right: 18px; z-index: 21;
+    width: 34px; height: 34px; border-radius: 10px; cursor: pointer;
+    background: var(--panel); backdrop-filter: blur(16px);
+    border: 1px solid var(--line); color: var(--dim);
+    display: none; align-items: center; justify-content: center; font-size: 15px;
+  }
+  #panel.collapsed ~ #panelToggle { display: flex; }
+  .sect { font-size: 10.5px; color: var(--dim); letter-spacing: .16em; margin: 13px 0 8px; }
+  .sect:first-child { margin-top: 2px; }
+  #views { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  #views button {
+    font: inherit; font-size: 12px; padding: 7px 0; cursor: pointer; color: var(--dim);
+    background: rgba(255,255,255,.045); border: 1px solid transparent;
+    border-radius: 8px; transition: all .18s;
+  }
+  #views button:hover { color: var(--ink); background: rgba(255,255,255,.09); }
+  #views button.on { color: #1b1408; background: var(--accent); font-weight: 600; }
+  .row { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: var(--dim); }
+  .row b { color: var(--ink); font-weight: 500; font-variant-numeric: tabular-nums; }
+  input[type=range] {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 3px; margin: 11px 0 2px;
+    background: rgba(255,255,255,.14); border-radius: 3px; outline: none; cursor: pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 13px; height: 13px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 0 4px rgba(216,178,106,.16); cursor: grab;
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 13px; height: 13px; border: none; border-radius: 50%; background: var(--accent);
+  }
+  .btn {
+    font: inherit; font-size: 12px; width: 100%; padding: 8px 0; margin-top: 6px; cursor: pointer;
+    color: var(--dim); background: rgba(255,255,255,.045);
+    border: 1px solid transparent; border-radius: 8px; transition: all .18s;
+  }
+  .btn:hover { color: var(--ink); background: rgba(255,255,255,.09); }
+  select {
+    font: inherit; font-size: 11.5px; color: var(--ink); cursor: pointer;
+    background: rgba(255,255,255,.07); border: 1px solid var(--line);
+    border-radius: 6px; padding: 2px 5px; outline: none;
+  }
+  select option { background: #14161d; }
+  #hud {
+    position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+    z-index: 15; display: flex; align-items: center; gap: 9px; flex-wrap: wrap;
+    justify-content: center; max-width: min(92vw, 980px);
+    padding: 8px 15px; border-radius: 11px;
+    background: rgba(15,17,23,.66); backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px); border: 1px solid var(--line);
+    font-size: 11px; color: #7d8496; letter-spacing: .02em;
+    transition: opacity .4s;
+  }
+  #hud .sep { color: #3c424f; }
+  #hud b {
+    display: inline-block; min-width: 15px; padding: 1px 3px; margin-right: 2px;
+    background: rgba(255,255,255,.075); border-radius: 4px;
+    color: #aeb6c6; font-weight: 500; font-size: 10.5px;
+  }
+  #playState { color: #6d7484; }
+  #playState.on { color: var(--accent); font-weight: 600; }
+  @media (max-width: 900px) { #hud .keys { display: none; } }
+  .foot { margin-top: 14px; padding-top: 11px; border-top: 1px solid var(--line);
+          font-size: 10.5px; color: #5d6474; line-height: 1.65; }
+</style>
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <div id="panel">
+    <div class="sect">视角</div>
+    <div id="views"></div>
+
+    <div class="sect">琴盖</div>
+    <div class="row"><span>开合角度</span><b id="lidVal">48°</b></div>
+    <input id="lid" type="range" min="0" max="80" step="1" value="48">
+
+    <div class="sect">演奏</div>
+    <div class="row"><span>音量</span><b id="volVal">70%</b></div>
+    <input id="vol" type="range" min="0" max="100" step="1" value="70">
+
+    <div class="sect">画质</div>
+    <div class="row">
+      <span><b id="fpsBadge">–</b> FPS · <span id="tierBadge">中</span></span>
+      <select id="tierPick">
+        <option value="high">高</option>
+        <option value="medium" selected>中</option>
+        <option value="low">低</option>
+      </select>
+    </div>
+
+    <button class="btn" id="shot">保存当前画面 PNG</button>
+
+    <div class="foot">拖拽旋转 · 滚轮缩放 · 右键平移<br>画质会自动调整，也可手动指定</div>
+  </div>
+  <button id="panelToggle" title="显示面板">☰</button>
+
+  <div id="hud">
+    <span id="playState">已停止</span>
+    <span class="sep">·</span>
+    <span class="keys"><b>Z</b><b>S</b><b>X</b><b>D</b><b>C</b><b>V</b><b>G</b><b>B</b><b>H</b><b>N</b><b>J</b><b>M</b> C4–B4</span>
+    <span class="sep">·</span>
+    <span class="keys"><b>Q</b><b>2</b><b>W</b><b>3</b><b>E</b><b>R</b><b>5</b><b>T</b><b>6</b><b>Y</b><b>7</b><b>U</b> C5–B5</span>
+    <span class="sep">·</span>
+    <span>空格 延音踏板</span>
+    <span class="sep">·</span>
+    <span>点住琴键左右滑动可刮奏</span>
+  </div>
+
+  <div id="loading">
+    <div class="brand">GRAND PIANO</div>
+    <div class="title">三角钢琴</div>
+    <div class="loadbar"><i id="loadBar"></i></div>
+    <div id="loadText">正在启动…</div>
+  </div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "./vendor/three/build/three.module.js",
+    "three/addons/": "./vendor/three/examples/jsm/"
+  }
+}
+</script>
+
+<script type="module">
+  const txt = document.getElementById('loadText');
+
+  if (location.protocol === 'file:') {
+    document.getElementById('loading').classList.add('error');
+    txt.innerHTML = '浏览器不允许本地文件加载 ES 模块。<br>请双击目录里的 <b>start.command</b>（会用本地服务器打开）。';
+    throw new Error('file:// 协议下无法加载 ES 模块');
+  }
+
+  try {
+    await import('three');
+  } catch (err) {
+    document.getElementById('loading').classList.add('error');
+    txt.innerHTML = '加载 Three.js 失败。确认 <code>vendor/three/</code> 目录完整；<br>'
+      + '若缺失，执行 <code>npm i three@0.170.0</code> 后重新生成 vendor。';
+    throw err;
+  }
+
+  await import('./src/main.js');
+</script>
+</body>
+</html>

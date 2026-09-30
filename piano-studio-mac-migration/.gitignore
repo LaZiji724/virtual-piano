@@ -1,0 +1,14 @@
+node_modules/
+shots/tune/
+shots/video/
+shots/wf-*.png
+shots/wf-events.json
+shots/wf-console.log
+shots/test-export.mid
+.DS_Store
+.deploy/
+site.zip
+
+# 采样音源：几百 MB 的音频不进版本库，清单 JSON 保留
+samples/*/
+samples/_*/
